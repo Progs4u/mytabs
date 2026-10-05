@@ -100,6 +100,15 @@ export async function main() {
         const url = `http://${address}:${info.port}`;
         console.log(`Server running on ${url}`);
 
+        // progs4u: build/refresh the tab index in the background once the server is
+        // listening (~7 s for 3 000 tabs). Requests arriving meanwhile await the same
+        // pass instead of triggering a second scan.
+        ensureTabIndex().then((result) => {
+            console.log(`Tab index ready: ${result.total} tabs (${result.indexed} added, ${result.removed} removed)`);
+        }).catch((e) => {
+            console.error("Failed to build the tab index:", e);
+        });
+
         const launchBrowser = Deno.env.get("MYTABS_LAUNCH_BROWSER");
 
         if (Deno.build.standalone) {

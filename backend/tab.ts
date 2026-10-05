@@ -115,8 +115,11 @@ async function writeConfigJSON(id: string, config: ConfigJSON): Promise<void> {
     await Deno.writeTextFile(configPath, JSON.stringify(config, null, 2));
 }
 
-/** Remembers that this process already reconciled the index with the directory. */
-let isIndexEnsured = false;
+/**
+ * The reconcile pass is shared: concurrent callers (first requests after boot, the boot
+ * warmup, ?reindex=1) await the same run instead of each scanning the directory.
+ */
+let indexPromise: Promise<{ indexed: number; removed: number; total: number }> | null = null;
 
 /**
  * Reconcile the SQLite index with the tab directory.
@@ -126,12 +129,15 @@ let isIndexEnsured = false;
  * index rows whose directory is gone are dropped. The filesystem stays authoritative; the
  * index is a cache that this function can always rebuild.
  */
-export async function ensureTabIndex(force = false): Promise<{ indexed: number; removed: number; total: number }> {
-    initTabIndex(true);
-
-    if (!force && isIndexEnsured) {
-        return { indexed: 0, removed: 0, total: countIndexedTabs() };
+export function ensureTabIndex(force = false): Promise<{ indexed: number; removed: number; total: number }> {
+    if (force || !indexPromise) {
+        indexPromise = reconcileTabIndex();
     }
+    return indexPromise;
+}
+
+async function reconcileTabIndex(): Promise<{ indexed: number; removed: number; total: number }> {
+    initTabIndex(true);
 
     const onDisk = new Set<string>();
 
@@ -165,8 +171,6 @@ export async function ensureTabIndex(force = false): Promise<{ indexed: number; 
             removed++;
         }
     }
-
-    isIndexEnsured = true;
 
     const total = countIndexedTabs();
     if (indexed > 0 || removed > 0) {
