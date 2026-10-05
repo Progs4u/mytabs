@@ -14,15 +14,17 @@ interface MockTab {
 }
 
 /**
- * Intercept /api/tabs and respond with a controlled tab list, so column
+ * Intercept /api/tabs (any query string: the list endpoint is paged now, so the app
+ * always sends ?limit/&offset) and respond with a controlled tab list, so column
  * visibility (recent / fav) can be asserted deterministically regardless of
  * what other e2e tests did to the shared server state.
  */
 async function mockTabs(page: Page, tabs: MockTab[]): Promise<void> {
-    await page.route("**/api/tabs", (route) => {
+    await page.route(/\/api\/tabs(\?.*)?$/, (route) => {
         route.fulfill({
             contentType: "application/json",
-            body: JSON.stringify({ ok: true, tabs }),
+            // The app pages the list, so the response carries the total as well.
+            body: JSON.stringify({ ok: true, tabs, total: tabs.length, limit: 200, offset: 0, hasMore: false }),
         });
     });
 }
@@ -36,7 +38,7 @@ test.describe("home page columns", () => {
         // Simulate the server returning an error body without a `tabs` array
         // (e.g. an expired session). The page must not throw on the
         // computed properties that call tabList.filter().
-        await page.route("**/api/tabs", (route) => {
+        await page.route(/\/api\/tabs(\?.*)?$/, (route) => {
             route.fulfill({
                 contentType: "application/json",
                 body: JSON.stringify({ ok: false, msg: "Not logged in" }),
