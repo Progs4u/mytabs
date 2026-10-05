@@ -3,6 +3,7 @@ import * as fs from "@std/fs";
 import * as path from "@std/path";
 import { AudioData, AudioDataSchema, ConfigJSON, ConfigJSONSchema, SyncRequest, TabInfo, TabInfoSchema, UpdateTabFav, UpdateTabInfo, Youtube, YoutubeSchema } from "./zod.ts";
 import { kv } from "./db.ts";
+import { countIndexedTabs, indexTab, indexTabAccess, initTabIndex, listIndexedIds, queryTabs, TabQuery, TabQueryResult, unindexTab } from "./tab-index.ts";
 import sanitize from "sanitize-filename";
 import { supportedAudioFormatList, supportedFormatList } from "./common.ts";
 
@@ -114,28 +115,76 @@ async function writeConfigJSON(id: string, config: ConfigJSON): Promise<void> {
     await Deno.writeTextFile(configPath, JSON.stringify(config, null, 2));
 }
 
-export async function getAllTabs(): Promise<TabInfo[]> {
-    const tabs: TabInfo[] = [];
+/** Remembers that this process already reconciled the index with the directory. */
+let isIndexEnsured = false;
 
-    // Scan the tabs folder
+/**
+ * Reconcile the SQLite index with the tab directory.
+ *
+ * One directory scan per process (or per explicit call): dirs missing from the index are
+ * read (and, as before, get a config.json created if they have a tab file but no config),
+ * index rows whose directory is gone are dropped. The filesystem stays authoritative; the
+ * index is a cache that this function can always rebuild.
+ */
+export async function ensureTabIndex(force = false): Promise<{ indexed: number; removed: number; total: number }> {
+    initTabIndex(true);
+
+    if (!force && isIndexEnsured) {
+        return { indexed: 0, removed: 0, total: countIndexedTabs() };
+    }
+
+    const onDisk = new Set<string>();
+
     for await (const entry of Deno.readDir(tabDir)) {
         // Only process directories, ignore "deleted" folder
         if (!entry.isDirectory || entry.name === "deleted") {
             continue;
         }
+        onDisk.add(entry.name);
+    }
 
-        const id = entry.name;
+    const indexedIds = new Set(listIndexedIds());
+    let indexed = 0;
+    let removed = 0;
+
+    for (const id of onDisk) {
+        if (indexedIds.has(id)) {
+            continue;
+        }
+
         const tab = await getOrCreateTab(id);
-
         if (tab) {
-            tabs.push(tab);
+            indexTab(tab);
+            indexed++;
         }
     }
 
-    // Sort by createdAt (newest first)
-    tabs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    for (const id of indexedIds) {
+        if (!onDisk.has(id)) {
+            unindexTab(id);
+            removed++;
+        }
+    }
 
-    return tabs;
+    isIndexEnsured = true;
+
+    const total = countIndexedTabs();
+    if (indexed > 0 || removed > 0) {
+        console.log(`Tab index: ${indexed} added, ${removed} removed, ${total} tabs indexed`);
+    }
+
+    return { indexed, removed, total };
+}
+
+/** A page of the library, served from the index (see tab-index.ts). */
+export async function getTabs(query: TabQuery = {}): Promise<TabQueryResult> {
+    await ensureTabIndex();
+    return queryTabs(query);
+}
+
+export async function getAllTabs(): Promise<TabInfo[]> {
+    const result = await getTabs({ sort: "created", order: "desc" });
+    return result.tabs;
 }
 
 export async function createTab(tabFileData: Uint8Array, ext: string, title: string, artist: string, originalFilename: string) {
@@ -167,6 +216,7 @@ export async function createTab(tabFileData: Uint8Array, ext: string, title: str
     };
 
     await writeConfigJSON(id.toString(), info);
+    indexTab(tab);
 
     return id.toString();
 }
@@ -175,6 +225,7 @@ export async function writeTabInfo(tab: TabInfo) {
     await updateConfigJSON(tab.id, async (config) => {
         config.tab = tab;
     });
+    indexTab(tab);
 }
 
 export async function getTab(id: string): Promise<TabInfo> {
@@ -232,6 +283,7 @@ export async function getOrCreateTab(id: string): Promise<TabInfo | null> {
     };
 
     await writeConfigJSON(id, newConfig);
+    indexTab(tab);
     return tab;
 }
 
@@ -254,9 +306,11 @@ export async function fixMissingTab(config: ConfigJSON): Promise<ConfigJSON> {
     }
 
     // Update tab info
-    return await updateConfigJSON(config.tab.id, async (cfg) => {
+    const fixed = await updateConfigJSON(config.tab.id, async (cfg) => {
         cfg.tab.filename = tabFile;
     });
+    indexTab(fixed.tab);
+    return fixed;
 }
 
 // Replace Tab
@@ -337,6 +391,7 @@ export async function recordTabAccess(id: string, timestamp = new Date().toISOSt
     await updateConfigJSON(id, async (config) => {
         config.tab.lastAccessAt = timestamp;
     });
+    indexTabAccess(id, timestamp);
 }
 
 export function getTabFilePath(tab: TabInfo) {
@@ -364,6 +419,8 @@ export async function deleteTab(id: string) {
     const newPath = path.join(tabDir, "deleted", id + "-" + Date.now().toString());
     await fs.ensureDir(path.join(tabDir, "deleted"));
     await Deno.rename(oldPath, newPath);
+
+    unindexTab(id);
 }
 
 export async function addAudio(tab: TabInfo, audioFileData: Uint8Array, originalFilename: string) {

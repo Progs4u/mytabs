@@ -16,6 +16,7 @@ import {
     checkTabExists,
     createTab,
     deleteTab,
+    ensureTabIndex,
     fixMissingTab,
     getAllTabs,
     getConfigJSON,
@@ -23,6 +24,7 @@ import {
     getTabFilePath,
     getTabFolderPath,
     getTabFullFilePath,
+    getTabs,
     recordTabAccess,
     removeAudio,
     removeYoutube,
@@ -260,15 +262,58 @@ export async function main() {
     });
 
     // Get Tab List
+    //
+    // progs4u: served from the SQLite tab index with paging and server-side search, so the
+    // response size and the work per request no longer scale with the library size.
+    //   ?limit=100&offset=0&q=bach&sort=created|title|artist|access&order=desc&fav=1
+    //   ?limit=0            -> everything (escape hatch; costs one row per tab)
+    //   ?reindex=1          -> rebuild the index from the tab directory first
+    // The response keeps `tabs` and adds `total` / `limit` / `offset` / `hasMore`.
     app.get("/api/tabs", async (c) => {
         try {
             await checkLogin(c);
 
-            const tabList = await getAllTabs();
+            if (c.req.query("reindex") === "1") {
+                const result = await ensureTabIndex(true);
+                console.log(`Tab index rebuilt: ${result.total} tabs (${result.indexed} added, ${result.removed} removed)`);
+            }
+
+            const DEFAULT_LIMIT = 200;
+            const MAX_LIMIT = 1000;
+
+            const rawLimit = c.req.query("limit");
+            let limit = DEFAULT_LIMIT;
+            if (rawLimit !== undefined) {
+                const parsed = parseInt(rawLimit, 10);
+                if (!isNaN(parsed) && parsed >= 0) {
+                    limit = parsed === 0 ? 0 : Math.min(parsed, MAX_LIMIT);
+                }
+            }
+
+            const rawOffset = c.req.query("offset");
+            const parsedOffset = rawOffset === undefined ? 0 : parseInt(rawOffset, 10);
+            const offset = !isNaN(parsedOffset) && parsedOffset > 0 ? parsedOffset : 0;
+
+            const sortParam = c.req.query("sort");
+            const sort = sortParam === "title" || sortParam === "artist" || sortParam === "access" || sortParam === "created" ? sortParam : "created";
+            const order = c.req.query("order") === "asc" ? "asc" : "desc";
+
+            const result = await getTabs({
+                limit,
+                offset,
+                q: c.req.query("q") || "",
+                fav: c.req.query("fav") === "1",
+                sort,
+                order,
+            });
 
             return c.json({
                 ok: true,
-                tabs: tabList,
+                tabs: result.tabs,
+                total: result.total,
+                limit,
+                offset,
+                hasMore: limit > 0 && offset + result.tabs.length < result.total,
             });
         } catch (e) {
             return generalError(c, e);
