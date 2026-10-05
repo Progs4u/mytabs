@@ -14,6 +14,10 @@
         // Addons
         "mpchc-controller": "deno run --allow-all extra/mpchc-controller.ts",
 
+        // progs4u: bulk import of tab files (mostly PDF) from a folder on the host.
+        // Run it inside the container: docker compose exec tabs deno task import-tabs --dir /import
+        "import-tabs": "deno run --allow-all extra/import-tabs.ts",
+
         // Dev
         "dev": "deno task build-frontend && deno run -A npm:concurrently -k -r \"deno run -A npm:wait-on tcp:47777 && deno task frontend-dev\" \"deno task backend-dev\"",
         "frontend-dev": "cd frontend && deno run dev-frontend",

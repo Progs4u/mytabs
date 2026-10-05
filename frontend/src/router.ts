@@ -8,6 +8,8 @@ import Login from "./pages/Login.vue";
 import TabConfig from "./pages/TabConfig.vue";
 import Settings from "./pages/Settings.vue";
 import TabNew from "./pages/TabNew.vue";
+import PdfTab from "./pages/PdfTab.vue";
+import { tabUsesViewer } from "./pdf.js";
 
 const Tab = () => import("./pages/Tab.vue");
 
@@ -47,6 +49,20 @@ const routes: RouteRecordRaw[] = [
                         path: "/tab/:id",
                         component: Tab,
                         meta: { hideFooter: true },
+                        // progs4u: tabs that are not AlphaTab scores (PDF) have no notes,
+                        // tracks or playback, so they open in the document viewer instead.
+                        beforeEnter: async (to) => {
+                            const id = String(to.params.id);
+                            if (await tabUsesViewer(id)) {
+                                return { name: "pdfTab", params: { id } };
+                            }
+                        },
+                    },
+                    {
+                        name: "pdfTab",
+                        path: "/pdf/:id",
+                        component: PdfTab,
+                        meta: { hideFooter: true },
                     },
                     {
                         name: "settings",
@@ -79,7 +95,7 @@ export const router = createRouter({
 router.beforeEach((to, from, next) => {
     if (window.isDemo === true) {
         // Allow access to Settings, Tab pages, and Register (setup) page only
-        const isTabPage = to.path.startsWith("/tab/");
+        const isTabPage = to.path.startsWith("/tab/") || to.path.startsWith("/pdf/");
         const isSettingsPage = to.path === "/settings";
         const isRegisterPage = to.path === "/register";
 

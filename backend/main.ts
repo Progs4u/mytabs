@@ -8,7 +8,8 @@ import { cors } from "@hono/hono/cors";
 import { serveStatic } from "@hono/hono/deno";
 import { appVersion, checkFilename, dataDir, devOriginList, getFrontendDir, getSourceDir, host, isDemoMode, isDev, port, start, tabDir } from "./util.ts";
 import * as path from "@std/path";
-import { supportedAudioFormatList, supportedFormatList } from "./common.ts";
+import { isPdfExt, looksLikePdf, parseTitleArtistFromFilename, supportedAudioFormatList, supportedFormatList } from "./common.ts";
+import { parseRangeHeader, PDF_MIME, readRange } from "./pdf.ts";
 import {
     addAudio,
     addYoutube,
@@ -188,6 +189,23 @@ export async function main() {
             artist = artist.trim();
 
             const arrayBuffer = await file.arrayBuffer();
+
+            // progs4u: a PDF is a viewer file, not an AlphaTab score, so there is no
+            // score metadata to read. Validate the magic bytes and fall back to
+            // "Artist - Title.pdf" when the client sent no title/artist.
+            if (isPdfExt(ext)) {
+                if (!looksLikePdf(new Uint8Array(arrayBuffer))) {
+                    throw new Error("File does not look like a PDF");
+                }
+                const parsed = parseTitleArtistFromFilename(fileName);
+                if (title === fileName) {
+                    title = parsed.title;
+                }
+                if (artist === "") {
+                    artist = parsed.artist;
+                }
+            }
+
             let id = await createTab(new Uint8Array(arrayBuffer), ext, title, artist, fileName);
 
             return c.json({
@@ -725,17 +743,54 @@ export async function main() {
                 throw new Error("Tab file not found");
             }
 
+            const stat = await Deno.stat(filePath);
+            const ext = path.extname(filePath).slice(1).toLowerCase();
+            const isPdf = isPdfExt(ext);
+            const encodedOriginalFilename = encodeURIComponent(tab.originalFilename);
+
+            // progs4u: PDFs are served as a real document type so the PDF viewer
+            // (or the browser's built-in one) can display them in place. Everything
+            // else keeps the original download behaviour.
+            // `?inline=1` forces inline for any format; `?disposition=attachment`
+            // forces a download for PDFs.
+            const wantsInline = c.req.query("inline") === "1" || c.req.query("disposition") === "inline";
+            const wantsAttachment = c.req.query("disposition") === "attachment";
+            const disposition = wantsAttachment ? "attachment" : (wantsInline || isPdf ? "inline" : "attachment");
+
+            const headers: Record<string, string> = {
+                "Content-Type": isPdf ? PDF_MIME : "application/octet-stream",
+                "Content-Disposition": `${disposition}; filename="${encodedOriginalFilename}"`,
+                "Accept-Ranges": "bytes",
+                "Content-Length": stat.size.toString(),
+            };
+
+            // Byte ranges: pdf.js and browser PDF viewers fetch large files in
+            // chunks instead of downloading them whole.
+            const rangeHeader = c.req.header("range");
+            if (rangeHeader && isPdf) {
+                const range = parseRangeHeader(rangeHeader, stat.size);
+                if (!range) {
+                    return c.body(null, 416, {
+                        "Content-Range": `bytes */${stat.size}`,
+                    });
+                }
+
+                const file = await Deno.open(filePath, { read: true });
+                const length = range.end - range.start + 1;
+
+                return c.body(readRange(file, range.start, length), 206, {
+                    ...headers,
+                    "Content-Range": `bytes ${range.start}-${range.end}/${stat.size}`,
+                    "Content-Length": length.toString(),
+                });
+            }
+
             // serve the file
             const file = await Deno.open(filePath, {
                 read: true,
             });
 
-            const encodedOriginalFilename = encodeURIComponent(tab.originalFilename);
-
-            return c.body(file.readable, 200, {
-                "Content-Type": "application/octet-stream",
-                "Content-Disposition": `attachment; filename="${encodedOriginalFilename}"`,
-            });
+            return c.body(file.readable, 200, headers);
         } catch (e) {
             console.error(e);
             return generalError(c, e);

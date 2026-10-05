@@ -2,6 +2,7 @@
 import { defineComponent } from "vue";
 import { notify } from "@kyvg/vue3-notification";
 import { baseURL } from "../app.js";
+import { isPdfTab } from "../pdf.js";
 
 export default defineComponent({
     props: {
@@ -18,6 +19,7 @@ export default defineComponent({
     emits: ["delete", "favToggled"],
 
     methods: {
+        isPdfTab,
         handleEdit() {
             this.$router.push(`/tab/${this.tab.id}/edit/info`);
         },
@@ -72,7 +74,11 @@ export default defineComponent({
         </button>
 
         <router-link class="info" :to="`/tab/${tab.id}`">
-            <div class="title">{{ tab.title }}</div>
+            <div class="title">
+                {{ tab.title }}
+                <!-- progs4u: mark document tabs so PDFs are distinguishable in lists -->
+                <span class="format-badge" v-if="isPdfTab(tab)">PDF</span>
+            </div>
             <div class="artist" v-if="showArtist">{{ tab.artist }}</div>
         </router-link>
 
@@ -127,6 +133,18 @@ export default defineComponent({
 
         .title {
             font-size: 16px;
+
+            .format-badge {
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 0.04em;
+                vertical-align: middle;
+                padding: 2px 5px;
+                margin-left: 6px;
+                border: 1px solid $color2-dark;
+                border-radius: 3px;
+                color: $color2-dark;
+            }
         }
 
         .artist {

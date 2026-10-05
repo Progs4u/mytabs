@@ -6,7 +6,68 @@ export const supportedFormatList = [
     "gp5",
     "musicxml",
     "capx",
+    // progs4u: PDF sheet music / chord charts. Not an AlphaTab score format -
+    // the frontend renders these with the PDF viewer instead of AlphaTab.
+    "pdf",
 ];
+
+/**
+ * Formats that are NOT AlphaTab scores and therefore never go through the
+ * AlphaTab importer/player (they have no notes, tempo or tracks).
+ */
+export const viewerFormatList = [
+    "pdf",
+];
+
+/**
+ * Formats that AlphaTab can load, i.e. everything that is not a viewer-only format.
+ */
+export const scoreFormatList = supportedFormatList.filter((ext) => !viewerFormatList.includes(ext));
+
+export function getExt(filename: string): string {
+    const parts = filename.split(".");
+    if (parts.length < 2) {
+        return "";
+    }
+    return parts.pop()!.toLowerCase();
+}
+
+export function isViewerFormat(ext: string): boolean {
+    return viewerFormatList.includes(ext.toLowerCase());
+}
+
+export function isPdfExt(ext: string): boolean {
+    return ext.toLowerCase() === "pdf";
+}
+
+/** A PDF file always starts with "%PDF-" (possibly after leading junk in broken files). */
+export function looksLikePdf(data: Uint8Array): boolean {
+    const head = new TextDecoder("latin1").decode(data.subarray(0, 1024));
+    return head.includes("%PDF-");
+}
+
+/**
+ * Guess title and artist from a file name, e.g.
+ * "Metallica - Nothing Else Matters.pdf" -> { artist: "Metallica", title: "Nothing Else Matters" }
+ * "wish_you_were_here.pdf"               -> { artist: "", title: "wish you were here" }
+ */
+export function parseTitleArtistFromFilename(filename: string): { title: string; artist: string } {
+    let base = filename.replace(/\.pdf$/i, "").trim();
+    base = base.replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
+
+    // "Artist - Title" (also en dash / em dash)
+    const parts = base.split(/\s+[-–—]\s+/);
+    if (parts.length >= 2) {
+        const artist = parts.shift()!.trim();
+        const title = parts.join(" - ").trim();
+        if (title.length > 0) {
+            return { title, artist };
+        }
+    }
+
+    return { title: base.length > 0 ? base : filename, artist: "" };
+}
+
 
 /**
  * Supported format string for display, like ".gp, .gpx, .gp3, ..." (with dot)

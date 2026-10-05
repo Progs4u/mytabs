@@ -4,7 +4,7 @@ import Vue3Dropzone from "@jaxtheprime/vue3-dropzone";
 import "@jaxtheprime/vue3-dropzone/dist/style.css";
 import { notify } from "@kyvg/vue3-notification";
 import { baseURL } from "../app.js";
-import { supportedFormatCommaString } from "../../../backend/common.js";
+import { isPdfExt, parseTitleArtistFromFilename, supportedFormatCommaString } from "../../../backend/common.js";
 
 const alphaTab = await import("@coderline/alphatab");
 
@@ -29,19 +29,31 @@ export default defineComponent({
             const uploadPromises = this.files.map(async (f) => {
                 try {
                     const file = f.file;
-                    // Try to parse the file with AlphaTab to ensure it's valid
-                    const data = await file.arrayBuffer();
-
-                    const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(
-                        new Uint8Array(data),
-                        new alphaTab.Settings(),
-                    );
+                    const isPdf = isPdfExt(file.name);
 
                     // Upload to /api/new-tab
                     const formData = new FormData();
                     formData.append("file", file);
-                    formData.append("title", score.title);
-                    formData.append("artist", score.artist);
+
+                    if (isPdf) {
+                        // progs4u: a PDF is not an AlphaTab score, so there is nothing to
+                        // parse here. The server checks the PDF magic bytes, and
+                        // artist/title are guessed from "Artist - Title.pdf".
+                        const parsed = parseTitleArtistFromFilename(file.name);
+                        formData.append("title", parsed.title);
+                        formData.append("artist", parsed.artist);
+                    } else {
+                        // Try to parse the file with AlphaTab to ensure it's valid
+                        const data = await file.arrayBuffer();
+
+                        const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(
+                            new Uint8Array(data),
+                            new alphaTab.Settings(),
+                        );
+
+                        formData.append("title", score.title);
+                        formData.append("artist", score.artist);
+                    }
 
                     const res = await fetch(baseURL + "/api/new-tab", {
                         method: "POST",
@@ -55,8 +67,11 @@ export default defineComponent({
                     }
 
                     const respData = await res.json();
-                    notify({ text: `Uploaded: ${score.artist} - ${score.title}`, type: "success" });
-                    return respData.id;
+                    notify({
+                        text: isPdf ? `Uploaded PDF: ${file.name}` : `Uploaded: ${score.artist} - ${score.title}`,
+                        type: "success",
+                    });
+                    return { id: respData.id, isPdf };
                 } catch (err) {
                     notify({ text: `Error with ${f.name}: ${err.message}`, type: "error" });
                     return null;
@@ -65,9 +80,9 @@ export default defineComponent({
 
             const results = await Promise.all(uploadPromises);
 
-            const firstId = results.find((id) => id !== null);
-            if (firstId) {
-                this.$router.push(`/tab/${firstId}`);
+            const first = results.find((r) => r !== null);
+            if (first) {
+                this.$router.push(first.isPdf ? `/pdf/${first.id}` : `/tab/${first.id}`);
             }
 
             // Reset Dropzone
@@ -108,7 +123,7 @@ export default defineComponent({
 
 <template>
     <div class="container my-container">
-        <div class="display-6 mb-4 mt-5">Upload Guitar Pro or MusicXML files</div>
+        <div class="display-6 mb-4 mt-5">Upload Guitar Pro, MusicXML or PDF files</div>
 
         <Vue3Dropzone
             v-model="files"
