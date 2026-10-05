@@ -25,25 +25,30 @@ Do it in batches (250 at a time) and record `time_total` and `size_download` at 
 a payload that does not grow with the batch count means the request is not returning the
 library at all (check the body, not just the timing).
 
-Baseline, dev instance, synthetic PDF tabs (this box, 2026-10-05):
+Baseline, dev instance, synthetic PDF tabs with 1-page files (this box, 2026-10-05).
+Each request below is `GET /api/tabs` with a session cookie, over loopback:
 
 | tabs | `GET /api/tabs` | payload |
 |---|---|---|
-| 0 | 12 ms | 252 B |
-| 250 | 7 ms | 252 B |
-| 500 | 8 ms | 252 B |
-| 750 | 7 ms | 252 B |
-| 1000 | 7 ms | 252 B |
-| 1250 | 8 ms | 252 B |
-| 1500 | 6 ms | 252 B |
-| 1750 | 5 ms | 252 B |
-| 2000 | 5 ms | 252 B |
+| 0 | 8.5 ms | 252 B |
+| 501 | 152 ms | 108.8 KB |
+| 1001 | 421 ms | 217.5 KB |
+| 1501 | 508 ms | 326.6 KB |
+| 2001 | 777 ms | 435.8 KB |
+| 2501 | 796 ms | 544.9 KB |
+| 3001 | 874 ms | 654.1 KB |
 
-These numbers are **invalid as a baseline**: the payload never grew, i.e. the response was
-an empty library, because the running dev container was built from the deploy tree (`src/`)
-and therefore did not contain the generator at all — the task never ran. Re-run after the
-dev image was fixed to build from `./dev` (see the Dockerfile `dev` stage) and fill the
-table in with real values before treating any of it as evidence.
+Read it as: **the cost is linear in the number of tabs and every page load pays it** — 874 ms
+of server CPU and 654 KB of JSON at 3 000 tabs, on loopback, with no network in the way. The
+home page calls this endpoint on mount, so a 5–10 000 PDF library means multi-second loads and
+megabyte payloads per visit, and the `q=` box filters that whole list in the browser. The
+per-request cost is the N file reads + JSON parses in `getAllTabs()`; the payload is the same
+list serialised whole.
+
+(An earlier revision of this table showed a flat 5–12 ms and a 252 B payload at every size —
+that was invalid: the dev container was running the deploy tree's code, so the generator never
+ran and every request returned an empty library. The lesson is in the runbook: assert on the
+response *contents*, not only the timing.)
 
 ## Acceptance criteria for the fix
 
