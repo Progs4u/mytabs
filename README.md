@@ -2,7 +2,32 @@
     <img src="./frontend/public/icon.png" width="128" alt="It's MyTabs" />
 </div>
 
-# It's MyTabs
+# It's MyTabs — progs4u edition
+
+> **This is the progs4u fork** of [louislam/its-mytabs](https://github.com/louislam/its-mytabs),
+> maintained by [Progs4u](https://progs4u.com). Our edition adds **PDF sheet music as a
+> first-class format**, because most chord charts and scanned tabs only exist as PDFs.
+>
+> - PDFs upload and live next to Guitar Pro / MusicXML / CapX tabs (`.pdf` in the same
+>   library, same search, same tags, same sharing).
+> - They open in a dedicated viewer at `/pdf/:id`: continuous scroll with **adjustable
+>   auto-scroll speed**, page mode, fit-width / fit-page / custom zoom, **night mode**,
+>   fullscreen, page jump and keyboard shortcuts (`Space` auto-scroll, `←`/`→` page,
+>   `+`/`−` zoom, `D` night, `F` fullscreen). Your page and zoom are remembered per tab.
+> - PDFs are served inline (`application/pdf`) with **byte-range support**, so large
+>   scans stream instead of downloading whole.
+> - `deno task import-tabs --dir <folder>` bulk-imports a folder tree of PDFs with
+>   sha256 deduplication — for libraries with thousands of files.
+> - Tab lists mark PDFs, and the router sends every non-score format to the document
+>   viewer instead of the AlphaTab player.
+>
+> Work lives on the `progs4u/pdf-support` branch (based on upstream tag 1.7.0); `master`
+> tracks upstream so releases can be merged. Run it with `docker compose build && docker
+> compose up -d` — the Dockerfile builds the frontend in-image, no host toolchain needed.
+> The generic half (PDF accepted, served inline with ranges, parsed titles) is a good
+> candidate for upstreaming — see upstream issue
+> [louislam/its-mytabs#76](https://github.com/louislam/its-mytabs/issues/76).
+
 
 <a target="_blank" href="https://github.com/louislam/uptime-kuma"><img src="https://img.shields.io/github/stars/louislam/its-mytabs?style=flat" /></a>
 <a target="_blank" href="https://hub.docker.com/r/louislam/uptime-kuma"><img src="https://img.shields.io/docker/pulls/louislam/its-mytabs" /></a>
