@@ -21,6 +21,8 @@ export interface TabQuery {
     q?: string;
     /** Only favorites. */
     fav?: boolean;
+    /** Only tabs that have been opened at least once (lastAccessAt set). */
+    opened?: boolean;
     sort?: "created" | "title" | "artist" | "access";
     order?: "asc" | "desc";
 }
@@ -195,6 +197,10 @@ export function queryTabs(query: TabQuery = {}): TabQueryResult {
 
     if (query.fav === true) {
         where.push("fav = 1");
+    }
+
+    if (query.opened === true) {
+        where.push("lastAccessAt IS NOT NULL");
     }
 
     const whereSql = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";

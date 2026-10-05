@@ -274,7 +274,7 @@ export async function main() {
     //
     // progs4u: served from the SQLite tab index with paging and server-side search, so the
     // response size and the work per request no longer scale with the library size.
-    //   ?limit=100&offset=0&q=bach&sort=created|title|artist|access&order=desc&fav=1
+    //   ?limit=100&offset=0&q=bach&sort=created|title|artist|access&order=desc&fav=1&opened=1
     //   ?limit=0            -> everything (escape hatch; costs one row per tab)
     //   ?reindex=1          -> rebuild the index from the tab directory first
     // The response keeps `tabs` and adds `total` / `limit` / `offset` / `hasMore`.
@@ -312,6 +312,7 @@ export async function main() {
                 offset,
                 q: c.req.query("q") || "",
                 fav: c.req.query("fav") === "1",
+                opened: c.req.query("opened") === "1",
                 sort,
                 order,
             });

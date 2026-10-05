@@ -154,6 +154,19 @@ Deno.test("index - favorites filter and the recents order", async () => {
     assertEquals(recentsAsc.tabs[1].lastAccessAt, undefined);
 });
 
+Deno.test("index - opened filter excludes tabs that were never opened", async () => {
+    const ids = await seed();
+
+    // Nothing opened yet: a recents query must come back empty, not "newest first".
+    assertEquals((await getTabs({ sort: "access", order: "desc" })).total, 5);
+    assertEquals((await getTabs({ sort: "access", order: "desc", opened: true })).total, 0);
+
+    await recordTabAccess(ids.pink, "2030-01-01T00:00:00.000Z");
+    const opened = await getTabs({ sort: "access", order: "desc", opened: true });
+    assertEquals(opened.total, 1);
+    assertEquals(opened.tabs[0].id, ids.pink);
+});
+
 Deno.test("index - updateTab and deleteTab keep the index in step", async () => {
     const ids = await seed();
 

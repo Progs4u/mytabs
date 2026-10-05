@@ -42,15 +42,17 @@ export default defineComponent({
 
         try {
             await this.loadTabs(0);
-            this.ready = true;
-
-            await this.$nextTick();
-            this.$refs.searchInput?.focus();
         } catch (error) {
             notify({
                 text: error.message,
                 type: "error",
             });
+        } finally {
+            // The page must render even when the tabs API fails (expired session, server
+            // error): the columns show their empty state instead of a blank page.
+            this.ready = true;
+            await this.$nextTick();
+            this.$refs.searchInput?.focus();
         }
     },
 
@@ -188,7 +190,7 @@ export default defineComponent({
 
             try {
                 const [recents, favorites] = await Promise.all([
-                    fetch(`${baseURL}/api/tabs?sort=access&order=desc&limit=${this.recentLimit}`, { credentials: "include" }).then((res) => res.json()),
+                    fetch(`${baseURL}/api/tabs?sort=access&order=desc&opened=1&limit=${this.recentLimit}`, { credentials: "include" }).then((res) => res.json()),
                     fetch(`${baseURL}/api/tabs?fav=1&limit=100`, { credentials: "include" }).then((res) => res.json()),
                 ]);
 
