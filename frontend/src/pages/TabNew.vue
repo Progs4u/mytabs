@@ -4,7 +4,7 @@ import Vue3Dropzone from "@jaxtheprime/vue3-dropzone";
 import "@jaxtheprime/vue3-dropzone/dist/style.css";
 import { notify } from "@kyvg/vue3-notification";
 import { baseURL } from "../app.js";
-import { isPdfExt, parseTitleArtistFromFilename, supportedFormatCommaString } from "../../../backend/common.js";
+import { getExt, isPdfExt, parseTitleArtistFromFilename, supportedFormatCommaString } from "../../../backend/common.js";
 
 const alphaTab = await import("@coderline/alphatab");
 
@@ -29,7 +29,7 @@ export default defineComponent({
             const uploadPromises = this.files.map(async (f) => {
                 try {
                     const file = f.file;
-                    const isPdf = isPdfExt(file.name);
+                    const isPdf = isPdfExt(getExt(file.name));
 
                     // Upload to /api/new-tab
                     const formData = new FormData();

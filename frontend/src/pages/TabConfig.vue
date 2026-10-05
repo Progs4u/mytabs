@@ -3,7 +3,7 @@ import { defineComponent } from "vue";
 import { baseURL, checkFetch, convertAlphaTexSyncPoint, generalError } from "../app.js";
 import { notify } from "@kyvg/vue3-notification";
 import Vue3Dropzone from "@jaxtheprime/vue3-dropzone";
-import { isPdfExt, supportedAudioFormatCommaString, supportedFormatCommaString } from "../../../backend/common.js";
+import { getExt, isPdfExt, supportedAudioFormatCommaString, supportedFormatCommaString } from "../../../backend/common.js";
 import SyncOptions from "../components/SyncOptions.vue";
 import { FontAwesomeIcon } from "../icon.ts";
 
@@ -208,7 +208,7 @@ export default defineComponent({
 
                 // progs4u: PDF files are not AlphaTab scores and must not go through
                 // the score importer - only real scores are pre-parsed for validation.
-                if (!isPdfExt(file.name)) {
+                if (!isPdfExt(getExt(file.name))) {
                     // Try to parse the file with AlphaTab to ensure it's valid
                     const data = await file.arrayBuffer();
 

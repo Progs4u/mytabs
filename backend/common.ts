@@ -36,8 +36,14 @@ export function isViewerFormat(ext: string): boolean {
     return viewerFormatList.includes(ext.toLowerCase());
 }
 
-export function isPdfExt(ext: string): boolean {
-    return ext.toLowerCase() === "pdf";
+/**
+ * Is this a PDF? Accepts either a bare extension ("pdf") or a file name
+ * ("60. Bach Style Voicings.pdf") - callers pass both forms, and comparing a whole
+ * file name against the extension list silently fails.
+ */
+export function isPdfExt(extOrFilename: string): boolean {
+    const value = extOrFilename.toLowerCase().trim();
+    return value === "pdf" || value.endsWith(".pdf");
 }
 
 /** A PDF file always starts with "%PDF-" (possibly after leading junk in broken files). */
