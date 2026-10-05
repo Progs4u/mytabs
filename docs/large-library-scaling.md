@@ -50,6 +50,22 @@ that was invalid: the dev container was running the deploy tree's code, so the g
 ran and every request returned an empty library. The lesson is in the runbook: assert on the
 response *contents*, not only the timing.)
 
+## Result (branch `dev/tabs-index`, PR Progs4u/mytabs#1)
+
+Same 3 001-tab library, same box, loopback, cookie-authed:
+
+| request | before (scan) | after (index) |
+|---|---|---|
+| `GET /api/tabs` (a page) | 1.0–1.4 s / 654 KB | **7–20 ms / 43.8 KB** |
+| `GET /api/tabs?q=metallica` | search was client-side over the whole list | 11.7 ms / 42 KB |
+| `GET /api/tabs?limit=0` (whole library) | 1.0–1.4 s / 654 KB | 50 ms / 654 KB |
+| first request after restart | 6.7 s (index built lazily) | 20 ms (built at boot) |
+
+The index build itself is unchanged work (~7 s at 3 000 tabs) but it now runs at boot in
+the background, and concurrent requests await the same pass instead of each scanning the
+directory. Delete the `tabs_index` table and the next boot rebuilds it — verified by
+dropping it and watching the boot log refill 3 001 rows with no request involved.
+
 ## Acceptance criteria for the fix
 
 1. **Index instead of scan.** A SQLite table (id, title, artist, filename, original,
