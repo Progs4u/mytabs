@@ -53,3 +53,28 @@ RUN chmod +x /app/extra/docker-entrypoint.sh
 
 ENTRYPOINT ["/app/extra/docker-entrypoint.sh"]
 CMD ["deno", "task", "start"]
+
+# ---------------------------------------------------------------------------
+# progs4u dev-only stage: the production image plus the frontend devDependencies
+# and the Playwright browsers, so the repo's unit and e2e suites run inside the
+# container. Built by compose.dev.yaml (`target: dev`) from the ./dev checkout and
+# never deployed. NOTE: this stage must live in THIS file, not in a Dockerfile that
+# starts FROM the production image - otherwise the dev container would run the
+# deploy tree's code (src/) instead of the branch under test.
+FROM release AS dev
+
+USER root
+
+# Chromium is downloaded here rather than into a user cache, so the container user
+# can read it; --with-deps pulls the shared libraries it links against.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+COPY --chown=deno:deno ./frontend /app/frontend
+
+WORKDIR /app/frontend
+RUN deno install && \
+    deno run -A npm:playwright@1.62.1 install --with-deps chromium && \
+    chmod -R a+rX /ms-playwright && \
+    rm -rf /root/.npm /var/lib/apt/lists/*
+
+WORKDIR /app
