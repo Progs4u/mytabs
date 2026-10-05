@@ -22,6 +22,10 @@
         // how the library scales (dev instance only).
         "generate-tabs": "deno run --allow-all extra/generate-tabs.ts",
 
+        // progs4u dev tool: show what the importer would make of a folder (titles, artists,
+        // pack numbers, tags, collections, likely-duplicate groups) without importing.
+        "preview-names": "deno run --allow-all extra/preview-names.ts",
+
         // Dev
         "dev": "deno task build-frontend && deno run -A npm:concurrently -k -r \"deno run -A npm:wait-on tcp:47777 && deno task frontend-dev\" \"deno task backend-dev\"",
         "frontend-dev": "cd frontend && deno run dev-frontend",
