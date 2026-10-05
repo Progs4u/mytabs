@@ -74,7 +74,6 @@ export function parseTitleArtistFromFilename(filename: string): { title: string;
     return { title: base.length > 0 ? base : filename, artist: "" };
 }
 
-
 /**
  * Supported format string for display, like ".gp, .gpx, .gp3, ..." (with dot)
  */

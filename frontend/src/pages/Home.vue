@@ -13,6 +13,16 @@ export default defineComponent({
     data() {
         return {
             tabList: [],
+            // Total tabs in the library, which can be larger than the loaded page: the API
+            // serves the list from an index, so a page is fetched instead of everything.
+            totalTabs: 0,
+            pageSize: 200,
+            loading: false,
+            // Remote recents/favorites for the case where the loaded page is truncated.
+            remoteRecents: null,
+            remoteFavorites: null,
+            serverSearchResults: null,
+            searchTimer: null,
             ready: false,
             isLoggedIn: false,
             searchQuery: "",
@@ -31,26 +41,28 @@ export default defineComponent({
         }
 
         try {
-            const res = await fetch(baseURL + "/api/tabs", { credentials: "include" });
-            const data = await res.json();
-            // The API can return { ok: false } without a tabs array (e.g. an
-            // expired session), so guard against assigning undefined.
-            this.tabList = Array.isArray(data.tabs) ? data.tabs : [];
-            this.ready = true;
-
-            await this.$nextTick();
-            this.$refs.searchInput?.focus();
+            await this.loadTabs(0);
         } catch (error) {
             notify({
                 text: error.message,
                 type: "error",
             });
+        } finally {
+            // The page must render even when the tabs API fails (expired session, server
+            // error): the columns show their empty state instead of a blank page.
+            this.ready = true;
+            await this.$nextTick();
+            this.$refs.searchInput?.focus();
         }
     },
 
     computed: {
         filteredTabList() {
             if (!this.searchQuery.trim()) return this.tabList;
+
+            // Server-side results when the library is bigger than one page, otherwise the
+            // local filter (no request while typing through a fully loaded library).
+            if (this.serverSearchResults) return this.serverSearchResults;
 
             const query = this.searchQuery.trim().toLowerCase();
 
@@ -62,15 +74,23 @@ export default defineComponent({
         },
 
         favoritedTabs() {
+            if (this.remoteFavorites) return this.remoteFavorites;
             return this.tabList.filter((tab) => tab.fav);
         },
 
-        // Tabs the user opened most recently (tracked via lastAccessAt in KV).
+        // Tabs the user opened most recently (tracked via lastAccessAt).
         recentTabs() {
+            if (this.remoteRecents) return this.remoteRecents;
+
             const opened = this.tabList
                 .filter((tab) => tab.lastAccessAt)
                 .sort((a, b) => new Date(b.lastAccessAt).getTime() - new Date(a.lastAccessAt).getTime());
             return opened.slice(0, this.recentLimit);
+        },
+
+        /** True when the library holds more tabs than the current page. */
+        isTruncated() {
+            return this.totalTabs > this.tabList.length;
         },
 
         groupedTabs() {
@@ -104,7 +124,112 @@ export default defineComponent({
         },
     },
 
+    watch: {
+        // Debounced so typing does not fire a request per keystroke; a small, fully
+        // loaded library never issues a request at all (see search()).
+        searchQuery(value) {
+            clearTimeout(this.searchTimer);
+            this.searchTimer = setTimeout(() => this.search(value.trim()), 300);
+        },
+    },
+
     methods: {
+        /**
+         * Fetch one page of the library. `append` continues the list (offset = what is
+         * already loaded), otherwise the page replaces it.
+         */
+        async loadTabs(offset = 0, q = null, append = false) {
+            this.loading = true;
+
+            try {
+                const params = new URLSearchParams();
+                params.set("limit", String(this.pageSize));
+                params.set("offset", String(offset));
+                if (q) {
+                    params.set("q", q);
+                }
+
+                const res = await fetch(`${baseURL}/api/tabs?${params.toString()}`, { credentials: "include" });
+                const data = await res.json();
+
+                // The API can return { ok: false } without a tabs array (e.g. an
+                // expired session), so guard against assigning undefined.
+                const tabs = Array.isArray(data.tabs) ? data.tabs : [];
+
+                if (append) {
+                    const known = new Set(this.tabList.map((tab) => tab.id));
+                    this.tabList = [...this.tabList, ...tabs.filter((tab) => !known.has(tab.id))];
+                } else {
+                    this.tabList = tabs;
+                }
+
+                if (typeof data.total === "number") {
+                    this.totalTabs = data.total;
+                } else {
+                    this.totalTabs = this.tabList.length;
+                }
+
+                await this.loadSideLists();
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        /**
+         * The recents and favorites columns must stay correct when the library is larger
+         * than one page, so they come from their own (small) queries in that case.
+         */
+        async loadSideLists() {
+            const truncated = this.totalTabs > this.tabList.length;
+
+            if (!truncated) {
+                this.remoteRecents = null;
+                this.remoteFavorites = null;
+                return;
+            }
+
+            try {
+                const [recents, favorites] = await Promise.all([
+                    fetch(`${baseURL}/api/tabs?sort=access&order=desc&opened=1&limit=${this.recentLimit}`, { credentials: "include" }).then((res) => res.json()),
+                    fetch(`${baseURL}/api/tabs?fav=1&limit=100`, { credentials: "include" }).then((res) => res.json()),
+                ]);
+
+                this.remoteRecents = Array.isArray(recents.tabs) ? recents.tabs : [];
+                this.remoteFavorites = Array.isArray(favorites.tabs) ? favorites.tabs : [];
+            } catch (e) {
+                console.error("Failed to load recents/favorites", e);
+            }
+        },
+
+        /** Search the whole library (only worth a request when the page is truncated). */
+        async search(q) {
+            if (this.totalTabs <= this.tabList.length) {
+                // Everything is loaded, the local filter is enough and instant.
+                this.serverSearchResults = null;
+                return;
+            }
+
+            if (!q) {
+                this.serverSearchResults = null;
+                await this.loadTabs(0);
+                return;
+            }
+
+            this.loading = true;
+            try {
+                const params = new URLSearchParams({ limit: String(this.pageSize), offset: "0", q });
+                const res = await fetch(`${baseURL}/api/tabs?${params.toString()}`, { credentials: "include" });
+                const data = await res.json();
+                this.serverSearchResults = Array.isArray(data.tabs) ? data.tabs : [];
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async loadMore() {
+            await this.loadTabs(this.tabList.length, null, true);
+        },
+
         handleFavToggled() {
             // Force re-render by creating a new array reference
             this.tabList = [...this.tabList];
@@ -174,10 +299,19 @@ export default defineComponent({
                 </div>
 
                 <div class="mb-2 ms-3">
-                    Total Tabs: {{ tabList.length }}
+                    Total Tabs: {{ totalTabs }}
                     <span v-if="searchQuery" class="text-muted">
                         ({{ filteredTabList.length }} shown)
                     </span>
+                    <span v-else-if="isTruncated" class="text-muted">
+                        (showing {{ tabList.length }})
+                    </span>
+                </div>
+
+                <div v-if="isTruncated && !searchQuery" class="mb-3 ms-3">
+                    <button class="btn btn-sm btn-outline-secondary" :disabled="loading" @click="loadMore">
+                        {{ loading ? "Loading..." : `Load more (${tabList.length} of ${totalTabs})` }}
+                    </button>
                 </div>
 
                 <template v-if="this.setting.groupByArtist && groupedTabs">
