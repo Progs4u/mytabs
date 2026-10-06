@@ -26,6 +26,10 @@
         // pack numbers, tags, collections, likely-duplicate groups) without importing.
         "preview-names": "deno run --allow-all extra/preview-names.ts",
 
+        // progs4u dev tool: dry-run an import that has a download manifest (real titles +
+        // composers), reporting what would be created without writing anything.
+        "preview-manifest": "deno run --allow-all extra/preview-manifest.ts",
+
         // Dev
         "dev": "deno task build-frontend && deno run -A npm:concurrently -k -r \"deno run -A npm:wait-on tcp:47777 && deno task frontend-dev\" \"deno task backend-dev\"",
         "frontend-dev": "cd frontend && deno run dev-frontend",

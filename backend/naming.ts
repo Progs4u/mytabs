@@ -227,3 +227,169 @@ export function workKey(parsed: { title: string; artist: string }): string {
             .trim();
     return `${normalize(parsed.artist)}|${normalize(parsed.title)}`;
 }
+
+/**
+ * Titles in download manifests ("video_title" in classclef's links.tsv, and similar exports)
+ * are far richer than file names, but padded with site noise:
+ *
+ *   "TAB/Sheet: Ghiribizzo No 36 by Niccolo Paganini | Detailed Guitar Tab, ... Tutorial"
+ *   "TAB/Sheet: Oblivion (Arranged by Roland Dyens) by Astor Piazzolla [PDF + Guitar Pro + MIDI]"
+ *   "TAB/Sheet: Bach's BWV 1005 Fugue [PDF + Guitar Pro + MIDI]"
+ *
+ * This extracts the piece title, the composer and the arranger from that shape.
+ */
+export interface ParsedManifestTitle {
+    title: string;
+    artist: string;
+    arranger: string;
+    /** The raw title, kept so nothing is lost if the parse is wrong. */
+    sourceTitle: string;
+    /** True when the composer had to be guessed (possessive form, file name). */
+    artistGuessed: boolean;
+}
+
+const NOISE_PATTERNS: RegExp[] = [
+    /^\s*TAB\/Sheet\s*:?\s*/i,
+    /^\s*Sheet\s*\/\s*Tab\s*:?\s*/i,
+    /\s*[|\uFF5C]\s*(?:Detailed\s+)?Guitar\s+Tab.*$/i,
+    /\s*\[(?:PDF|MIDI)[^\]]*\]\s*$/i,
+    /\s*\((?:PDF|MIDI)[^)]*\)\s*$/i,
+    /\s*(?:PDF|MIDI|Guitar\s+Pro)(?:\s*\+\s*(?:PDF|MIDI|Guitar\s+Pro))+\s*$/i,
+    /\s*Midi\s*$/i,
+];
+
+/** "(Arranged by X)", "Arranged by X", "(Arr. X)", "arr: X" */
+const ARRANGER_PATTERNS: RegExp[] = [
+    /\(\s*(?:arranged|arr\.?)\b\s*(?:by)?\s*:?\s*([^)]+?)\s*\)/i,
+    /\s*[\[(]?\s*(?:arranged|arr\.?)\b\s+by\s*:?\s*([^|\[\]]+?)\s*(?=[\[|]|$)/i,
+    /\s*[\[(]?\s*arr\s*:\s*([^|\[\]]+?)\s*(?=[\[|]|$)/i,
+];
+
+export function parseManifestTitle(
+    rawTitle: string,
+    fallbackFilename = "",
+    knownComposers: Map<string, string> = new Map(),
+): ParsedManifestTitle {
+    const sourceTitle = rawTitle;
+    let text = ` ${rawTitle} `.replace(/\s+/g, " ");
+
+    for (const pattern of NOISE_PATTERNS) {
+        text = text.replace(pattern, " ");
+    }
+    text = text.replace(/\s+/g, " ").trim();
+
+    // arranger first: "Arranged by X" contains " by " and would otherwise read as composer
+    let arranger = "";
+    for (const pattern of ARRANGER_PATTERNS) {
+        const match = text.match(pattern);
+        if (match) {
+            arranger = match[1].replace(/\s+/g, " ").trim();
+            text = text.replace(match[0], " ").replace(/\s+/g, " ").trim();
+            break;
+        }
+    }
+
+    // composer: the LAST " by " credit (titles exist like "Book 5 Lesson 14 by Julio
+    // Sagreras by Julio Sagreras", where the site repeated the credit)
+    let artist = "";
+    let artistGuessed = false;
+
+    const parts = text.split(/\s+by\s+/i);
+    if (parts.length >= 2) {
+        artist = parts[parts.length - 1].replace(/\s+/g, " ").trim();
+        text = parts.slice(0, -1).join(" by ").trim();
+
+        // drop a duplicated trailing credit left in the title
+        const escaped = artist.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        text = text.replace(new RegExp(`\\s+by\\s+${escaped}\\s*$`, "i"), "").trim();
+    }
+
+    // possessive form: "Bach's BWV 1005 Fugue"
+    if (artist === "") {
+        const poss = text.match(/^([A-Z][\w'’.-]+(?:\s+[A-Z][\w'’.-]+){0,2})['’]s\s+(.+)$/);
+        if (poss) {
+            artist = poss[1];
+            text = poss[2];
+            artistGuessed = true;
+        }
+    }
+
+    // Last resort: a composer-first file name ("bach-bwv401.pdf"). Only accepted when the
+    // slug matches a composer that appears elsewhere in the same library - otherwise
+    // "ojos-negros.pdf" would invent a composer named "Ojos".
+    if (artist === "" && fallbackFilename !== "") {
+        const slug = fallbackFilename.replace(/\.[a-z0-9]{1,6}$/i, "");
+        const slugMatch = slug.match(/^([a-z]{3,})-/);
+        if (slugMatch) {
+            const known = knownComposers.get(slugMatch[1].toLowerCase());
+            if (known) {
+                artist = known;
+                artistGuessed = true;
+            }
+        }
+    }
+
+    let title = text.replace(/^[\s\-–—:]+|[\s\-–—:]+$/g, "").replace(/\s+/g, " ").trim();
+    if (title === "") {
+        title = fallbackFilename.replace(/\.[a-z0-9]{1,6}$/i, "").trim() || sourceTitle;
+    }
+
+    return { title, artist, arranger, sourceTitle, artistGuessed };
+}
+
+/**
+ * A library downloads the same composer under many spellings ("Johann Sebastian Bach",
+ * "J.S Bach", "Bach"), which splits one person across several entries. These are merged so
+ * grouping and search see one composer. Add to this list as real data shows up rather than
+ * guessing: only names seen in the wild belong here.
+ */
+export const COMPOSER_ALIASES: Record<string, string> = {
+    "j s bach": "Johann Sebastian Bach",
+    "js bach": "Johann Sebastian Bach",
+    "johann sebastian bach": "Johann Sebastian Bach",
+    "johann sebastain bach": "Johann Sebastian Bach",
+    "bach": "Johann Sebastian Bach",
+    "agustin barrios": "Agustin Barrios Mangore",
+    "augustin barrios": "Agustin Barrios Mangore",
+    "agustin barrios mangore": "Agustin Barrios Mangore",
+    "augustin barrios mangore": "Agustin Barrios Mangore",
+    "barrios": "Agustin Barrios Mangore",
+    "silvius leopold weiss": "Silvius Leopold Weiss",
+    "silvius leoplod weiss": "Silvius Leopold Weiss",
+    "weiss": "Silvius Leopold Weiss",
+    "niccolo paganini": "Niccolo Paganini",
+    "nicolo paganini": "Niccolo Paganini",
+    "paganini": "Niccolo Paganini",
+    "francisco tarrega": "Francisco Tarrega",
+    "tarrega": "Francisco Tarrega",
+    "heitor villa lobos": "Heitor Villa-Lobos",
+    "heitor villa-lobos": "Heitor Villa-Lobos",
+    "villa lobos": "Heitor Villa-Lobos",
+    "isaac albeniz": "Isaac Albeniz",
+    "manuel ponce": "Manuel Ponce",
+    "manuel maria ponce": "Manuel Ponce",
+    "manuel marial ponce": "Manuel Ponce",
+};
+
+/** Merge the spellings of one composer into a single canonical name. */
+export function canonicalComposer(name: string): string {
+    const cleaned = name.replace(/\s+/g, " ").replace(/^[-–—\s]+|[-–—\s]+$/g, "").trim();
+    if (cleaned === "") {
+        return "";
+    }
+    const key = cleaned
+        .toLowerCase()
+        .replace(/[.]/g, " ")
+        .replace(/\s+/g, " ")
+        .replace(/^(johann|j)\s/, (m) => m) // keep leading initials usable as keys
+        .trim();
+    return COMPOSER_ALIASES[key] ?? cleaned;
+}
+
+/**
+ * Anonymous material (folksongs, "Traditional") has no composer credit to find. Saying so is
+ * more honest than leaving the field empty or inventing a name.
+ */
+export function isTraditionalTitle(title: string): boolean {
+    return /\b(traditional|folksong|folk song|anon\.?|anonymous)\b/i.test(title);
+}

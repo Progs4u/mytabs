@@ -6,7 +6,7 @@
 
 import { assertEquals } from "jsr:@std/assert@^1.0.17";
 
-const { parseTabFilename, workKey, folderCollection } = await import("./naming.ts");
+const { parseTabFilename, workKey, folderCollection, parseManifestTitle, canonicalComposer, isTraditionalTitle } = await import("./naming.ts");
 
 Deno.test("naming - numbered pack file without an artist", () => {
     const parsed = parseTabFilename("60. Bach Style Voicings.pdf");
@@ -89,4 +89,74 @@ Deno.test("naming - work key groups the same piece across qualities", () => {
 
     assertEquals(workKey(a), workKey(b));
     assertEquals(workKey(a) !== workKey(c), true);
+});
+
+// --- manifest titles (real rows from classclef's links.tsv) -------------------------------
+
+Deno.test("manifest - 'Title by Composer' with the site suffix stripped", () => {
+    const p = parseManifestTitle(
+        "TAB/Sheet: Ghiribizzo No 36 by Niccolo Paganini | Detailed Guitar Tab, Sheet Music, & MIDI Tutorial",
+        "paganini-ghiribizzo36.pdf",
+    );
+    assertEquals(p.title, "Ghiribizzo No 36");
+    assertEquals(p.artist, "Niccolo Paganini");
+    assertEquals(p.arranger, "");
+});
+
+Deno.test("manifest - '(Arranged by X) by Composer' splits arranger from composer", () => {
+    const p = parseManifestTitle(
+        "TAB/Sheet: Oblivion (Arranged by Roland Dyens) by Astor Piazzolla [PDF + Guitar Pro + MIDI]",
+        "piazzolla-dyens-oblivion.pdf",
+    );
+    assertEquals(p.title, "Oblivion");
+    assertEquals(p.artist, "Astor Piazzolla");
+    assertEquals(p.arranger, "Roland Dyens");
+});
+
+Deno.test("manifest - bare 'Arranged by X' does not swallow the composer", () => {
+    const p = parseManifestTitle(
+        "TAB/Sheet: Johnny Guitar (Peggy Lee/Victor Young) Arranged by Isaias Savio | Guitar Tab, Sheet Music & MIDI",
+        "savio-johnny-guitar.pdf",
+    );
+    assertEquals(p.arranger, "Isaias Savio");
+    assertEquals(p.title, "Johnny Guitar (Peggy Lee/Victor Young)");
+});
+
+Deno.test("manifest - possessive credit when the site forgot 'by'", () => {
+    const p = parseManifestTitle("TAB/Sheet: Bach's BWV 1005 Fugue [PDF + Guitar Pro + MIDI]", "bach-bwv1005-fuga.pdf");
+    assertEquals(p.title, "BWV 1005 Fugue");
+    assertEquals(p.artist, "Bach");
+    assertEquals(p.artistGuessed, true);
+});
+
+Deno.test("manifest - a duplicated credit does not end up in the title or the composer", () => {
+    const p = parseManifestTitle("Book 5 Lesson 14 by Julio Sagreras by Julio Sagreras [PDF + Guitar Pro + MIDI]", "sagreras-book5-14.pdf");
+    assertEquals(p.title, "Book 5 Lesson 14");
+    assertEquals(p.artist, "Julio Sagreras");
+});
+
+Deno.test("manifest - a file name only supplies a composer that the library uses elsewhere", () => {
+    const vocabulary = new Map([["barrios", "Agustin Barrios Mangore"]]);
+    const known = parseManifestTitle("Minueto en Si | Detailed Guitar Tab, Sheet Music, & MIDI Tutorial", "barrios-minuet-b.pdf", vocabulary);
+    assertEquals(known.artist, "Agustin Barrios Mangore");
+    assertEquals(known.artistGuessed, true);
+
+    // "ojos-negros.pdf" is a Russian folksong: no composer may be invented from the slug
+    const unknown = parseManifestTitle("TAB/Sheet: Dark Eyes (Ojos Negros) Russian Folksong [PDF + Guitar Pro + MIDI]", "ojos-negros.pdf", vocabulary);
+    assertEquals(unknown.artist, "");
+    assertEquals(unknown.title, "Dark Eyes (Ojos Negros) Russian Folksong");
+});
+
+Deno.test("manifest - composer spellings are merged", () => {
+    assertEquals(canonicalComposer("J.S Bach"), "Johann Sebastian Bach");
+    assertEquals(canonicalComposer("Bach"), "Johann Sebastian Bach");
+    assertEquals(canonicalComposer("Agustin Barrios"), "Agustin Barrios Mangore");
+    assertEquals(canonicalComposer("Silvius Leoplod Weiss"), "Silvius Leopold Weiss");
+    assertEquals(canonicalComposer("Dilermando Reis"), "Dilermando Reis");
+});
+
+Deno.test("manifest - anonymous material is named, not guessed", () => {
+    assertEquals(isTraditionalTitle("Dark Eyes (Ojos Negros) Russian Folksong"), true);
+    assertEquals(isTraditionalTitle("El Vito (Spanish Traditional)"), true);
+    assertEquals(isTraditionalTitle("Asturias Leyenda"), false);
 });
