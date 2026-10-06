@@ -20,7 +20,7 @@ const tempDir = await setupTest();
 
 const { createTab, deleteTab, ensureTabIndex, getTabs, getAllTabs, recordTabAccess, updateTab, updateTabFav } = await import("./tab.ts");
 const { db } = await import("./db.ts");
-const { countIndexedTabs, queryTabs } = await import("./tab-index.ts");
+const { countIndexedTabs, initTabIndex, queryTabs } = await import("./tab-index.ts");
 const { tabDir } = await import("./util.ts");
 
 /** Fresh library for each test: wipe the directory and the index. */
@@ -223,4 +223,53 @@ Deno.test("index - queryTabs is usable directly (no directory scan)", async () =
     assertEquals(result.total, 5);
     assertEquals(result.tabs.length, 1);
     assertEquals(result.tabs[0].title, "Bach Style Voicings");
+});
+
+// --- upgrading an existing install -------------------------------------------------------
+//
+// An install that predates the library metadata has a tabs_index table WITHOUT the new
+// columns. CREATE TABLE IF NOT EXISTS is a no-op there, so the columns must be added before
+// anything references them - otherwise the index DDL fails and the index never builds.
+// (This is not hypothetical: the first live import failed on every file this way.)
+
+Deno.test("index - a database from before the library metadata is upgraded, not broken", () => {
+    // Reproduce the old shape: recreate the table as it was, then let the app initialise it.
+    db.exec("DROP TABLE IF EXISTS tabs_index");
+    db.exec(`CREATE TABLE tabs_index (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT '',
+        artist TEXT NOT NULL DEFAULT '',
+        filename TEXT NOT NULL DEFAULT '',
+        originalFilename TEXT NOT NULL DEFAULT '',
+        createdAt TEXT NOT NULL DEFAULT '',
+        lastAccessAt TEXT,
+        public INTEGER NOT NULL DEFAULT 0,
+        fav INTEGER NOT NULL DEFAULT 0,
+        ext TEXT NOT NULL DEFAULT '',
+        size INTEGER NOT NULL DEFAULT 0,
+        indexedAt TEXT NOT NULL DEFAULT ''
+    )`);
+    db.exec("INSERT INTO tabs_index (id, title, artist, createdAt) VALUES ('900', 'Legacy', 'Someone', '2020-01-01T00:00:00.000Z')");
+
+    const before = (db.prepare("PRAGMA table_info(tabs_index)").all() as unknown as { name: string }[]).map((c) => c.name);
+    assertEquals(before.includes("collection"), false);
+
+    // Must not throw: the missing columns are added before the indexes that use them.
+    initTabIndex(true);
+
+    const after = (db.prepare("PRAGMA table_info(tabs_index)").all() as unknown as { name: string }[]).map((c) => c.name);
+    for (const column of ["collection", "tags", "arranger", "source", "hasText", "pageCount"]) {
+        assertEquals(after.includes(column), true, `column ${column} was not added`);
+    }
+
+    // The old row survived, and the new columns are usable straight away.
+    const legacy = queryTabs({ q: "Legacy" });
+    assertEquals(legacy.total, 1);
+    assertEquals(legacy.tabs[0].collection, "");
+
+    db.prepare("UPDATE tabs_index SET collection = ?, tags = ? WHERE id = '900'").run("a-pack", JSON.stringify(["source:a-pack"]));
+    assertEquals(queryTabs({ collection: "a-pack" }).total, 1);
+    assertEquals(queryTabs({ tag: "source:a-pack" }).total, 1);
+
+    db.prepare("DELETE FROM tabs_index WHERE id = '900'").run();
 });

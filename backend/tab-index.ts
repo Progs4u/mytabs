@@ -90,6 +90,14 @@ CREATE TABLE IF NOT EXISTS tabs_index (
     hasText INTEGER NOT NULL DEFAULT 0,
     pageCount INTEGER NOT NULL DEFAULT 0
 );
+`;
+
+/**
+ * Indexes are created separately, and only AFTER migrateColumns(). An existing database
+ * keeps its old columns when CREATE TABLE IF NOT EXISTS is a no-op, so creating the index on
+ * a column added later in the same batch would fail on every upgrade of an existing install.
+ */
+const CREATE_INDEX_SQL = `
 CREATE INDEX IF NOT EXISTS idx_tabs_index_created ON tabs_index (createdAt DESC);
 CREATE INDEX IF NOT EXISTS idx_tabs_index_title ON tabs_index (title COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_tabs_index_artist ON tabs_index (artist COLLATE NOCASE);
@@ -139,7 +147,9 @@ export function initTabIndex(force = false): void {
         return;
     }
     db.exec(CREATE_TABLE_SQL);
+    // An existing database needs the new columns before anything references them.
     migrateColumns();
+    db.exec(CREATE_INDEX_SQL);
     db.exec(CREATE_TEXT_SQL);
 
     try {
