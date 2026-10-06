@@ -191,7 +191,22 @@ export async function getAllTabs(): Promise<TabInfo[]> {
     return result.tabs;
 }
 
-export async function createTab(tabFileData: Uint8Array, ext: string, title: string, artist: string, originalFilename: string) {
+/** Library metadata attached to a tab when it is created (see extra/import-manifest.ts). */
+export interface CreateTabMeta {
+    collection?: string;
+    tags?: string[];
+    arranger?: string;
+    source?: string;
+}
+
+export async function createTab(
+    tabFileData: Uint8Array,
+    ext: string,
+    title: string,
+    artist: string,
+    originalFilename: string,
+    meta: CreateTabMeta = {},
+) {
     const id = await getNextTabID();
     const dir = path.join(tabDir, id.toString());
 
@@ -211,6 +226,10 @@ export async function createTab(tabFileData: Uint8Array, ext: string, title: str
         createdAt: new Date().toISOString(),
         public: false,
         fav: false,
+        collection: meta.collection ?? "",
+        tags: meta.tags ?? [],
+        arranger: meta.arranger ?? "",
+        source: meta.source ?? "",
     });
 
     const info: ConfigJSON = {

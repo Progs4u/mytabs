@@ -26,6 +26,9 @@ export default defineComponent({
             ready: false,
             isLoggedIn: false,
             searchQuery: "",
+            // progs4u: search what is printed inside the files (FTS5 over the PDF text)
+            // instead of only what the tabs are called.
+            searchInside: false,
             setting: {},
             recentLimit: 20,
         };
@@ -59,6 +62,9 @@ export default defineComponent({
     computed: {
         filteredTabList() {
             if (!this.searchQuery.trim()) return this.tabList;
+
+            // Content results only exist server-side.
+            if (this.searchInside) return this.serverSearchResults ?? [];
 
             // Server-side results when the library is bigger than one page, otherwise the
             // local filter (no request while typing through a fully loaded library).
@@ -146,7 +152,7 @@ export default defineComponent({
                 params.set("limit", String(this.pageSize));
                 params.set("offset", String(offset));
                 if (q) {
-                    params.set("q", q);
+                    params.set(this.searchInside ? "text" : "q", q);
                 }
 
                 const res = await fetch(`${baseURL}/api/tabs?${params.toString()}`, { credentials: "include" });
@@ -203,7 +209,8 @@ export default defineComponent({
 
         /** Search the whole library (only worth a request when the page is truncated). */
         async search(q) {
-            if (this.totalTabs <= this.tabList.length) {
+            // Content search has to run on the server: the text is not in this page's data.
+            if (this.totalTabs <= this.tabList.length && !this.searchInside) {
                 // Everything is loaded, the local filter is enough and instant.
                 this.serverSearchResults = null;
                 return;
@@ -217,7 +224,9 @@ export default defineComponent({
 
             this.loading = true;
             try {
-                const params = new URLSearchParams({ limit: String(this.pageSize), offset: "0", q });
+                const params = new URLSearchParams({ limit: String(this.pageSize), offset: "0" });
+                // `q` matches title/composer/collection/tags, `text` matches the printed page.
+                params.set(this.searchInside ? "text" : "q", q);
                 const res = await fetch(`${baseURL}/api/tabs?${params.toString()}`, { credentials: "include" });
                 const data = await res.json();
                 this.serverSearchResults = Array.isArray(data.tabs) ? data.tabs : [];
@@ -295,6 +304,20 @@ export default defineComponent({
                         >
                             ✕
                         </button>
+                    </div>
+
+                    <!-- progs4u: the printable content of the files is searchable too -->
+                    <div class="form-check form-check-inline ms-1 mt-2">
+                        <input
+                            class="form-check-input"
+                            type="checkbox"
+                            id="searchInside"
+                            v-model="searchInside"
+                            @change="search(searchQuery.trim())"
+                        />
+                        <label class="form-check-label small text-muted" for="searchInside">
+                            search inside the files
+                        </label>
                     </div>
                 </div>
 

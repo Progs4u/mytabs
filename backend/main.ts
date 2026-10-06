@@ -35,6 +35,8 @@ import {
     updateTabFav,
     updateYoutube,
 } from "./tab.ts";
+// progs4u: the collection/tag lists behind the library filters live in the index module.
+import { listCollections, listTags } from "./tab-index.ts";
 import { ZodError } from "zod";
 import sanitize from "sanitize-filename";
 import "@std/dotenv/load";
@@ -304,13 +306,23 @@ export async function main() {
             const offset = !isNaN(parsedOffset) && parsedOffset > 0 ? parsedOffset : 0;
 
             const sortParam = c.req.query("sort");
-            const sort = sortParam === "title" || sortParam === "artist" || sortParam === "access" || sortParam === "created" ? sortParam : "created";
+            const sort = sortParam === "title" || sortParam === "artist" || sortParam === "collection" || sortParam === "access" || sortParam === "created" ? sortParam : "created";
             const order = c.req.query("order") === "asc" ? "asc" : "desc";
+
+            // hasText selects files with (1) or without (0) a searchable text layer, so the
+            // few scans can be found and OCR'd instead of hiding in the library.
+            const hasTextParam = c.req.query("hasText");
+            const hasText = hasTextParam === "1" ? 1 : hasTextParam === "0" ? 0 : undefined;
 
             const result = await getTabs({
                 limit,
                 offset,
                 q: c.req.query("q") || "",
+                // `text` searches what is printed inside the files, `q` what they are called.
+                text: c.req.query("text") || "",
+                collection: c.req.query("collection") || "",
+                tag: c.req.query("tag") || "",
+                hasText,
                 fav: c.req.query("fav") === "1",
                 opened: c.req.query("opened") === "1",
                 sort,
@@ -325,6 +337,25 @@ export async function main() {
                 offset,
                 hasMore: limit > 0 && offset + result.tabs.length < result.total,
             });
+        } catch (e) {
+            return generalError(c, e);
+        }
+    });
+
+    // progs4u: the collections and tags present in the library, for the sidebar filters.
+    app.get("/api/collections", async (c) => {
+        try {
+            await checkLogin(c);
+            return c.json({ ok: true, collections: listCollections() });
+        } catch (e) {
+            return generalError(c, e);
+        }
+    });
+
+    app.get("/api/tags", async (c) => {
+        try {
+            await checkLogin(c);
+            return c.json({ ok: true, tags: listTags() });
         } catch (e) {
             return generalError(c, e);
         }

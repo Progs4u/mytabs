@@ -26,8 +26,11 @@ EXPOSE 47777
 
 RUN mkdir -p /app/data && chown -R deno:deno /app/data
 
+# progs4u: poppler-utils provides pdftotext/pdfinfo. The importer uses it to record what
+# is printed inside each PDF (so the chords become searchable) and to tell a born-digital
+# file from a scan that would need OCR.
 RUN apt update && \
-    apt --yes --no-install-recommends install gosu && \
+    apt --yes --no-install-recommends install gosu poppler-utils && \
     rm -rf /var/lib/apt/lists/*
 
 USER deno
