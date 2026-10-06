@@ -14,12 +14,44 @@ export default defineComponent({
             type: Boolean,
             default: true,
         },
+        // progs4u: the row the preview pane is showing.
+        selected: {
+            type: Boolean,
+            default: false,
+        },
     },
 
-    emits: ["delete", "favToggled"],
+    emits: ["delete", "favToggled", "select", "open"],
 
     methods: {
         isPdfTab,
+
+        /**
+         * A plain left click selects the tab for the preview instead of navigating. Modified
+         * clicks are left alone so ctrl/cmd-click and middle click still open the tab in a new
+         * browser tab - the row stays a real link.
+         */
+        handleClick(event) {
+            if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) {
+                return;
+            }
+            event.preventDefault();
+
+            // event.detail === 0 means the click came from the keyboard (Enter on the row)
+            if (event.detail === 0) {
+                this.$emit("open", this.tab);
+                return;
+            }
+
+            this.$emit("select", this.tab);
+        },
+
+        /** Double click opens the tab (the viewer decides whether that is /pdf/:id). */
+        handleDblClick(event) {
+            event.preventDefault();
+            this.$emit("open", this.tab);
+        },
+
         handleEdit() {
             this.$router.push(`/tab/${this.tab.id}/edit/info`);
         },
@@ -62,7 +94,7 @@ export default defineComponent({
 </script>
 
 <template>
-    <div class="tab-item rounded">
+    <div class="tab-item rounded" :class='{ selected }'>
         <button
             class="fav-btn"
             @click="toggleFav"
@@ -73,7 +105,12 @@ export default defineComponent({
             />
         </button>
 
-        <router-link class="info" :to="`/tab/${tab.id}`">
+        <a
+            class="info"
+            :href="`${baseURL}/tab/${tab.id}`"
+            @click="handleClick"
+            @dblclick="handleDblClick"
+        >
             <div class="title">
                 {{ tab.title }}
                 <!-- progs4u: mark document tabs so PDFs are distinguishable in lists -->
@@ -85,7 +122,7 @@ export default defineComponent({
                 <span class="meta-chip" v-if="tab.collection">{{ tab.collection }}</span>
                 <span class="meta-chip arranger" v-if="tab.arranger">arr. {{ tab.arranger }}</span>
             </div>
-        </router-link>
+        </a>
 
         <div class="btn-group action-buttons" role="group" aria-label="Tab actions">
             <button class="btn btn-sm btn-secondary" @click="handleEdit" aria-label="Edit">
@@ -129,6 +166,12 @@ export default defineComponent({
 
     &:hover {
         background-color: rgba(0, 0, 0, 0.05);
+    }
+
+    // the row the preview pane is showing
+    &.selected {
+        background-color: rgba(0, 0, 0, 0.1);
+        box-shadow: inset 3px 0 0 0 #2c7be5;
     }
 
     .fav-btn {

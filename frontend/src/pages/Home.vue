@@ -4,10 +4,12 @@ import { notify } from "@kyvg/vue3-notification";
 import { baseURL, getSetting } from "../app.js";
 import { isLoggedIn } from "../auth-client.js";
 import TabItem from "../components/TabItem.vue";
+import PdfPreview from "../components/PdfPreview.vue";
 
 export default defineComponent({
     components: {
         TabItem,
+        PdfPreview,
     },
 
     data() {
@@ -31,12 +33,32 @@ export default defineComponent({
             searchInside: false,
             setting: {},
             recentLimit: 20,
+            // progs4u: the tab the preview pane shows. Single click in any list selects it,
+            // double click opens it - so browsing a library and judging a page never has to
+            // leave (and lose) the list you are working through.
+            selectedTab: null,
+            // Saved so a return from a tab (or a reload) brings the list back as it was.
+            selectedTabId: null,
         };
     },
 
     async mounted() {
         this.isLoggedIn = await isLoggedIn();
         this.setting = getSetting();
+
+        // Coming back from a tab must not lose the list you were working through.
+        try {
+            const saved = JSON.parse(sessionStorage.getItem("homeContext") || "null");
+            if (saved) {
+                this.searchQuery = saved.searchQuery || "";
+                this.searchInside = saved.searchInside === true;
+                this.selectedTabId = saved.selectedTabId ?? null;
+            }
+        } catch {
+            // a stale or unreadable context is not worth failing the page for
+        }
+
+        window.addEventListener("keydown", this.onKeyDown);
 
         if (!this.isLoggedIn) {
             this.$router.push("/login");
@@ -55,6 +77,7 @@ export default defineComponent({
             // error): the columns show their empty state instead of a blank page.
             this.ready = true;
             await this.$nextTick();
+            this.restoreSelection();
             this.$refs.searchInput?.focus();
         }
     },
@@ -134,9 +157,11 @@ export default defineComponent({
         // Debounced so typing does not fire a request per keystroke; a small, fully
         // loaded library never issues a request at all (see search()).
         searchQuery(value) {
+            this.saveContext();
             clearTimeout(this.searchTimer);
             this.searchTimer = setTimeout(() => this.search(value.trim()), 300);
         },
+
     },
 
     methods: {
@@ -237,6 +262,98 @@ export default defineComponent({
 
         async loadMore() {
             await this.loadTabs(this.tabList.length, null, true);
+        },
+
+        /** Single click: show the tab in the preview pane, stay in the list. */
+        selectTab(tab) {
+            this.selectedTab = tab;
+            this.selectedTabId = tab.id;
+            this.saveContext();
+        },
+
+        /** Double click (or Enter): open the tab's viewer. */
+        openTab(tab) {
+            const target = tab ?? this.selectedTab;
+            if (!target) {
+                return;
+            }
+            this.selectedTab = target;
+            this.selectedTabId = target.id;
+            this.saveContext();
+            this.$router.push(`/tab/${target.id}`);
+        },
+
+        /**
+         * Walk the visible list from the keyboard, so a search can be judged row by row
+         * without touching the mouse. The selection follows the arrow keys and the list
+         * scrolls to keep it in view.
+         */
+        moveSelection(step) {
+            const list = this.filteredTabList;
+            if (list.length === 0) {
+                return;
+            }
+            const current = list.findIndex((tab) => tab.id === this.selectedTabId);
+            const next = current === -1
+                ? (step > 0 ? 0 : list.length - 1)
+                : Math.min(list.length - 1, Math.max(0, current + step));
+
+            this.selectedTab = list[next];
+            this.selectedTabId = list[next].id;
+            this.saveContext();
+            this.$nextTick(() => this.scrollSelectionIntoView(list[next].id));
+        },
+
+        scrollSelectionIntoView(id) {
+            const row = this.$el?.querySelector(`.tab-item.selected`);
+            if (row && typeof row.scrollIntoView === "function") {
+                row.scrollIntoView({ block: "nearest" });
+            }
+        },
+
+        onKeyDown(event) {
+            const typing = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement;
+
+            if (event.key === "ArrowDown") {
+                event.preventDefault();
+                this.moveSelection(1);
+            } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                this.moveSelection(-1);
+            } else if (event.key === "Enter" && this.selectedTabId !== null) {
+                // Enter in the search box opens the highlighted tab, which is how a search
+                // ends: type, arrow down to hear nothing, Enter.
+                this.openTab(this.selectedTab);
+            } else if (event.key === "Escape" && typing) {
+                this.searchQuery = "";
+            }
+        },
+
+        /** Re-attach the saved selection id to the tab object once the lists are loaded. */
+        restoreSelection() {
+            if (this.selectedTabId === null) {
+                return;
+            }
+            const found = [...this.filteredTabList, ...this.tabList, ...this.recentTabs, ...this.favoritedTabs]
+                .find((tab) => String(tab.id) === String(this.selectedTabId));
+            if (found) {
+                this.selectedTab = found;
+            }
+        },
+
+        saveContext() {
+            try {
+                sessionStorage.setItem(
+                    "homeContext",
+                    JSON.stringify({
+                        searchQuery: this.searchQuery,
+                        searchInside: this.searchInside,
+                        selectedTabId: this.selectedTabId,
+                    }),
+                );
+            } catch {
+                // private mode / full storage: the feature is a convenience, not a requirement
+            }
         },
 
         handleFavToggled() {
@@ -346,8 +463,11 @@ export default defineComponent({
                             :key="tab.id"
                             :tab="tab"
                             :show-artist="false"
+                            :selected="selectedTabId === tab.id"
                             @delete="deleteTab"
                             @favToggled="handleFavToggled"
+                            @select="selectTab"
+                            @open="openTab"
                         />
                     </div>
                 </template>
@@ -358,8 +478,11 @@ export default defineComponent({
                         :key="tab.id"
                         :tab="tab"
                         :show-artist="true"
+                        :selected="selectedTabId === tab.id"
                         @delete="deleteTab"
                         @favToggled="handleFavToggled"
+                        @select="selectTab"
+                        @open="openTab"
                     />
                 </template>
 
@@ -375,44 +498,63 @@ export default defineComponent({
                 </div>
             </div>
 
-            <!-- Column 2: Recent Tabs -->
-            <div class="col-md-12 col-lg-4 order-1 order-lg-0 box box-left">
-                <div class="ms-3 mb-2">
-                    <h4>Recent Tabs</h4>
+            <!--
+                Right region: recents and favourites keep the top half, the preview pane takes
+                the bottom half. Judging a page is what browsing this library is for, so it sits
+                next to the lists instead of behind a navigation.
+            -->
+            <div class="col-md-12 col-lg-8 order-1 order-lg-0 right-region">
+                <div class="row g-0 right-top">
+                    <!-- Column 2: Recent Tabs -->
+                    <div class="col-md-12 col-lg-6 box box-left">
+                        <div class="ms-3 mb-2">
+                            <h4>Recent Tabs</h4>
+                        </div>
+
+                        <div v-if="recentTabs.length === 0" class="empty-msg">
+                            No Recent Tabs
+                        </div>
+
+                        <TabItem
+                            v-for="tab in recentTabs"
+                            :key="`recent-${tab.id}`"
+                            :tab="tab"
+                            :show-artist="true"
+                            :selected="selectedTabId === tab.id"
+                            @delete="deleteTab"
+                            @favToggled="handleFavToggled"
+                            @select="selectTab"
+                            @open="openTab"
+                        />
+                    </div>
+
+                    <!-- Column 3: Fav Tabs -->
+                    <div class="col-md-12 col-lg-6 box box-right">
+                        <div class="ms-3 mb-2">
+                            <h4>Favorite Tabs</h4>
+                        </div>
+
+                        <div v-if="favoritedTabs.length === 0" class="empty-msg">
+                            No Favorite Tabs
+                        </div>
+
+                        <TabItem
+                            v-for="tab in favoritedTabs"
+                            :key="`fav-${tab.id}`"
+                            :tab="tab"
+                            :show-artist="true"
+                            :selected="selectedTabId === tab.id"
+                            @delete="deleteTab"
+                            @favToggled="handleFavToggled"
+                            @select="selectTab"
+                            @open="openTab"
+                        />
+                    </div>
                 </div>
 
-                <div v-if="recentTabs.length === 0" class="empty-msg">
-                    No Recent Tabs
+                <div class="preview-pane">
+                    <PdfPreview :tab="selectedTab" />
                 </div>
-
-                <TabItem
-                    v-for="tab in recentTabs"
-                    :key="`recent-${tab.id}`"
-                    :tab="tab"
-                    :show-artist="true"
-                    @delete="deleteTab"
-                    @favToggled="handleFavToggled"
-                />
-            </div>
-
-            <!-- Column 3: Fav Tabs -->
-            <div class="col-md-12 col-lg-4 order-2 order-lg-0 box box-right">
-                <div class="ms-3 mb-2">
-                    <h4>Favorite Tabs</h4>
-                </div>
-
-                <div v-if="favoritedTabs.length === 0" class="empty-msg">
-                    No Favorite Tabs
-                </div>
-
-                <TabItem
-                    v-for="tab in favoritedTabs"
-                    :key="`fav-${tab.id}`"
-                    :tab="tab"
-                    :show-artist="true"
-                    @delete="deleteTab"
-                    @favToggled="handleFavToggled"
-                />
             </div>
         </div>
     </div>
@@ -432,17 +574,60 @@ h4 {
     color: $color2-dark;
 }
 
+// The right region is one column of two halves: the two list boxes on top, the preview
+// below. The boxes keep their own scrolling; the whole region is the viewport height.
+// The list scrolls inside its own column, so the preview next to it stays in view while
+// working through results instead of scrolling away with the page.
+.home-col-tablist {
+    .desktop & {
+        height: calc(100vh - 160px);
+        overflow-y: auto;
+    }
+}
+
+.right-region {
+    display: flex;
+    flex-direction: column;
+
+    .desktop & {
+        height: calc(100vh - 160px);
+        gap: 12px;
+    }
+}
+
+.right-top {
+    flex: 0 0 calc(50% - 6px);
+    min-height: 0;
+    overflow: hidden;
+
+    .box {
+        height: 100%;
+        overflow-y: auto;
+    }
+}
+
+.preview-pane {
+    flex: 1 1 50%;
+    min-height: 0;
+    display: flex;
+
+    > * {
+        width: 100%;
+        min-height: 0;
+    }
+
+    .mobile & {
+        height: 320px;
+    }
+}
+
 .box {
     background-color: rgba(0, 0, 0, 0.16);
     padding: 25px;
 
     // Not Mobile
     .desktop & {
-        position: sticky;
-        top: 20px;
-        align-self: flex-start;
-        height: calc(100vh - 160px);
-        overflow-y: auto;
+        height: 100%;
 
         &.box-left {
             border-radius: 25px 0 0 25px;
