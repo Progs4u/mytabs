@@ -16,6 +16,12 @@ import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 const STORAGE_PREFIX = "pdfTab.";
+/**
+ * Bumped when the meaning of a stored field changes. State written before the default fit mode
+ * became "page" recorded the old "width" default for every tab that was merely opened, and must
+ * not keep overriding the new one - while a deliberate choice made after this version survives.
+ */
+const STATE_VERSION = 2;
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 6;
 
@@ -37,7 +43,9 @@ export default defineComponent({
             canvases: {}, // page number -> HTMLCanvasElement
 
             scale: 1,
-            fitMode: "width", // width | page | custom
+            // Fit page by default: a sheet of music should be visible whole when it opens, so
+            // the top of the next system is not cut off before the first judgement is made.
+            fitMode: "page", // width | page | custom
             mode: "scroll", // scroll (continuous) | page (one page at a time)
 
             autoScrolling: false,
@@ -643,6 +651,7 @@ export default defineComponent({
             const write = () => {
                 try {
                     localStorage.setItem(this.stateKey(), JSON.stringify({
+                        v: STATE_VERSION,
                         page: this.currentPage,
                         scale: this.scale,
                         fitMode: this.fitMode,
@@ -681,7 +690,10 @@ export default defineComponent({
                     this.scale = state.scale;
                 }
                 if (typeof state.fitMode === "string") {
-                    this.fitMode = state.fitMode;
+                    // "width" from an older version is the old default, not a choice: fall
+                    // through to the current default instead of restoring it.
+                    const legacyDefault = (state.v ?? 1) < STATE_VERSION && state.fitMode === "width";
+                    this.fitMode = legacyDefault ? "page" : state.fitMode;
                 }
                 if (typeof state.mode === "string") {
                     this.mode = state.mode;
