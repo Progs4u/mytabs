@@ -30,6 +30,14 @@
         // composers), reporting what would be created without writing anything.
         "preview-manifest": "deno run --allow-all extra/preview-manifest.ts",
 
+        // progs4u dev tool: read what is inside the PDFs - which have a searchable text
+        // layer, and what the page itself says when the manifest rows disagree.
+        "probe-pdf-text": "deno run --allow-all extra/probe-pdf-text.ts",
+
+        // progs4u: import a library that ships a download manifest (real titles + composers),
+        // reading inside each PDF for searchable text and to settle contradictory rows.
+        "import-manifest": "deno run --allow-all extra/import-manifest.ts",
+
         // Dev
         "dev": "deno task build-frontend && deno run -A npm:concurrently -k -r \"deno run -A npm:wait-on tcp:47777 && deno task frontend-dev\" \"deno task backend-dev\"",
         "frontend-dev": "cd frontend && deno run dev-frontend",

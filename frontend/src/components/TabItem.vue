@@ -80,6 +80,11 @@ export default defineComponent({
                 <span class="format-badge" v-if="isPdfTab(tab)">PDF</span>
             </div>
             <div class="artist" v-if="showArtist">{{ tab.artist }}</div>
+            <!-- progs4u: which collection (pack) a tab came from, and who arranged it -->
+            <div class="tab-meta" v-if="tab.collection || tab.arranger">
+                <span class="meta-chip" v-if="tab.collection">{{ tab.collection }}</span>
+                <span class="meta-chip arranger" v-if="tab.arranger">arr. {{ tab.arranger }}</span>
+            </div>
         </router-link>
 
         <div class="btn-group action-buttons" role="group" aria-label="Tab actions">
@@ -95,6 +100,27 @@ export default defineComponent({
 
 <style scoped lang="scss">
 @import "../styles/vars.scss";
+
+.tab-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 3px;
+
+    .meta-chip {
+        font-size: 10px;
+        line-height: 1.4;
+        padding: 1px 6px;
+        border-radius: 8px;
+        background-color: rgba(0, 0, 0, 0.07);
+        color: #666;
+
+        &.arranger {
+            background-color: rgba(0, 0, 0, 0.04);
+            font-style: italic;
+        }
+    }
+}
 
 .tab-item {
     display: flex;

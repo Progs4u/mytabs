@@ -148,8 +148,9 @@ Deno.test("manifest - a file name only supplies a composer that the library uses
 });
 
 Deno.test("manifest - composer spellings are merged", () => {
-    assertEquals(canonicalComposer("J.S Bach"), "Johann Sebastian Bach");
-    assertEquals(canonicalComposer("Bach"), "Johann Sebastian Bach");
+    assertEquals(canonicalComposer("J.S Bach"), "J.S Bach");
+    assertEquals(canonicalComposer("Bach"), "J.S Bach");
+    assertEquals(canonicalComposer("Johann Sebastian Bach"), "J.S Bach");
     assertEquals(canonicalComposer("Agustin Barrios"), "Agustin Barrios Mangore");
     assertEquals(canonicalComposer("Silvius Leoplod Weiss"), "Silvius Leopold Weiss");
     assertEquals(canonicalComposer("Dilermando Reis"), "Dilermando Reis");

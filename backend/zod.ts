@@ -24,6 +24,16 @@ export const TabInfoSchema = z.object({
     // When the tab was last opened (ISO date). Not required so existing
     // config.json files parse fine.
     lastAccessAt: z.iso.datetime().optional(),
+    // progs4u: library metadata derived at import time (see backend/naming.ts). Every field
+    // has a default, so config.json files written before this existed still parse.
+    collection: z.string().default(""),
+    tags: z.array(z.string()).default([]),
+    arranger: z.string().default(""),
+    /** Where the file came from (the pack/site name), kept for provenance. */
+    source: z.string().default(""),
+    pageCount: z.number().int().min(0).default(0),
+    /** Whether the file carries a text layer, i.e. can be searched inside. */
+    hasText: z.boolean().default(false),
 });
 export type TabInfo = z.infer<typeof TabInfoSchema>;
 

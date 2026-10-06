@@ -344,11 +344,12 @@ export function parseManifestTitle(
  * guessing: only names seen in the wild belong here.
  */
 export const COMPOSER_ALIASES: Record<string, string> = {
-    "j s bach": "Johann Sebastian Bach",
-    "js bach": "Johann Sebastian Bach",
-    "johann sebastian bach": "Johann Sebastian Bach",
-    "johann sebastain bach": "Johann Sebastian Bach",
-    "bach": "Johann Sebastian Bach",
+    "j s bach": "J.S Bach",
+    "js bach": "J.S Bach",
+    "johann sebastian bach": "J.S Bach",
+    "johann sebastain bach": "J.S Bach",
+    "bach": "J.S Bach",
+    "js bach (1685 1750)": "J.S Bach",
     "agustin barrios": "Agustin Barrios Mangore",
     "augustin barrios": "Agustin Barrios Mangore",
     "agustin barrios mangore": "Agustin Barrios Mangore",
