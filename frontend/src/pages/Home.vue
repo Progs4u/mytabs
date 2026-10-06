@@ -271,7 +271,12 @@ export default defineComponent({
             this.saveContext();
         },
 
-        /** Double click (or Enter): open the tab's viewer. */
+        /**
+         * Double click (or Enter): open the tab in a NEW browser tab, so the list being worked
+         * through - the search text, the scroll position, the selection - is exactly as it was
+         * when the next one gets picked. Falls back to navigating in place only if the browser
+         * refuses to open the window.
+         */
         openTab(tab) {
             const target = tab ?? this.selectedTab;
             if (!target) {
@@ -280,7 +285,11 @@ export default defineComponent({
             this.selectedTab = target;
             this.selectedTabId = target.id;
             this.saveContext();
-            this.$router.push(`/tab/${target.id}`);
+
+            const opened = window.open(`${baseURL}/tab/${target.id}`, "_blank");
+            if (!opened) {
+                this.$router.push(`/tab/${target.id}`);
+            }
         },
 
         /**
@@ -596,7 +605,8 @@ h4 {
 }
 
 .right-top {
-    flex: 0 0 calc(50% - 6px);
+    // 30/70: the lists stay reachable, the page gets the room - judging the page is the point.
+    flex: 0 0 calc(30% - 6px);
     min-height: 0;
     overflow: hidden;
 
@@ -607,7 +617,7 @@ h4 {
 }
 
 .preview-pane {
-    flex: 1 1 50%;
+    flex: 1 1 70%;
     min-height: 0;
     display: flex;
 
